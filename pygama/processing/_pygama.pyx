@@ -224,15 +224,26 @@ def ProcessTier1(filename,  processorList, digitizer_list=None, output_file_stri
   verbose=True
   if verbose: print("Creating dataframe for file {}...".format(filename))
   df_data = pd.DataFrame(appended_data)
+  df_data.set_index("event_number", inplace=True)
 
   t2_file_name = output_file_string+'_run{}.h5'.format(runNumber)
   t2_path = os.path.join(output_dir,t2_file_name)
 
   if verbose: print("Writing {} to tier1 file {}...".format(filename, t2_path))
 
-  df_data.to_hdf(t2_path, key="data", format='table', mode='w', data_columns=True)
+  df_data.to_hdf(t2_path, key="data", format='table', mode='w', data_columns=df_data.columns.tolist())
   return df_data
 
+
+# def event_proc(event_data):
+#   waveform = digitizer.parse_event_data(event_data)
+#   #Currently, I'll just mandate that we only process full waveform data i guess
+#   wf_data = waveform.get_waveform()
+#
+#   processorList.Reset( wf_data )
+#
+#   paramDict = processorList.Process(event_data)
+#   appended_data.append(paramDict)
 
 class TierOneProcessorList():
   '''
@@ -244,7 +255,7 @@ class TierOneProcessorList():
     self.param_dict = {}
 
     #t1 fields to make available for t2 processors
-    self.t0_list = ["channel", "energy", "timestamp"]
+    self.t0_list = ["channel", "energy", "timestamp", "event_number"]
 
   def Reset(self, waveform):
     self.param_dict = {}
@@ -276,7 +287,6 @@ class TierOneProcessorList():
           for i, out in enumerate(output):
             self.param_dict[out] = calc[i]
         else: self.param_dict[output] = calc
-
     return self.param_dict
 
   def AddTransform(self, function, args={}, input_waveform="waveform", output_waveform=None):

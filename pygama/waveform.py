@@ -5,7 +5,10 @@ from .transforms import center
 class Waveform():
 
     def __init__(self, wf_data, sample_period):
-        self.data = wf_data
+        '''
+        sample_period is in ns
+        '''
+        self.data = wf_data.astype('float_')
         self.sample_period = sample_period
 
     #Putting this method here so I can overload it in subclasses w/ more options
