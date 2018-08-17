@@ -21,29 +21,43 @@ def is_saturated(waveform, bit_precision=14):
     return True if np.amax(waveform) >= 0.5*2**bit_precision - 1 else False
 
 #Estimate t0
-def t0_estimate(waveform, baseline=0, median_kernel_size=51):
+def t0_estimate(waveform, baseline=0, median_kernel_size=51, max_t0_adc=100):
+    '''
+    max t0 adc: maximum adc (above baseline) the wf can get to before assuming the wf has started
+    '''
+
+    if np.amax(waveform)<max_t0_adc:
+        return np.nan
 
     wf_med = signal.medfilt(waveform, kernel_size=median_kernel_size)
     med_diff = gaussian_filter1d(wf_med, sigma=1, order=1)
 
-    tp05 = calc_timepoint(waveform, percentage=0.005, baseline=0, do_interp=False, doNorm=False)
+    tp05 = calc_timepoint(waveform, percentage=max_t0_adc, baseline=0, do_interp=False, doNorm=False)
     tp05_rel = np.int(tp05+1)
     thresh = 5E-5
     last_under = tp05_rel - np.argmax(med_diff[tp05_rel::-1]<=thresh)
+    if last_under >= len(med_diff)-1:
+        last_under = len(med_diff)-2
 
     t0 = np.interp(thresh, ( med_diff[last_under],   med_diff[last_under+1] ), (last_under, last_under+1))
 
     return t0
 
+#Estimate t0
+def max_time(waveform):
+    return np.argmax(waveform)
 
 #Estimate arbitrary timepoint before max
-def calc_timepoint(waveform, percentage=0.5, baseline=0, do_interp=False, doNorm=True):
+def calc_timepoint(waveform, percentage=0.5, baseline=0, do_interp=False, doNorm=True, norm=None):
     '''
     percentage: if less than zero, will return timepoint on falling edge
     do_interp: linear linerpolation of the timepoint...
     '''
     wf_norm = (np.copy(waveform) - baseline)
-    if doNorm: wf_norm /= np.amax(wf_norm)
+
+    if doNorm:
+        if norm is None: norm = np.amax(wf_norm)
+        wf_norm /= norm
 
     def get_tp(perc):
         if perc > 0:
