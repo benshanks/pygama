@@ -10,7 +10,7 @@ from ..utils import update_progress
 from ..decoders import *
 from ..decoders.digitizers import Digitizer
 from ._header_parser import *
-from .processors import Calculator, Transformer, DatabaseLookup, Tier0Passer
+from .processors import Calculator, Transformer, DatabaseLookup
 
 def ProcessTier0( filename, output_file_string = "t1", chan_list=None, n_max=np.inf, verbose=False, output_dir=None, decoders=None):
   '''
@@ -181,7 +181,7 @@ def ProcessTier1(filename,  processorList, digitizer_list=None, output_file_stri
     if d.decoder_name not in f.keys():
       digitizer_list.remove(d)
 
-  print("Beginning Tier 1 processing of file {}...".format(filename))
+  print("\nBeginning Tier 1 processing of file {}...".format(filename))
 
   for digitizer in digitizer_list:
     print("   Processing from digitizer {}".format(digitizer.class_name))
@@ -190,66 +190,33 @@ def ProcessTier1(filename,  processorList, digitizer_list=None, output_file_stri
     digitizer.load_object_info(object_info)
 
     event_df = pd.read_hdf(filename,key=digitizer.decoder_name)
+    # event_df = event_df[:1000]
 
-    appended_data = []
+    processorList.digitizer = digitizer
+    processorList.max_event_number = len(event_df)
+    processorList.verbose = verbose
+    processorList.t0_cols = event_df.columns.values.tolist()
+    processorList.runNumber = runNumber
+    processorList.num = 0
 
-    for i, (index, event_data) in enumerate(event_df.iterrows()):
-      if verbose and i%100==0: update_progress( float(i)/ len(event_df.index))
+    t1_df = event_df.apply(processorList.Process, axis=1)
+    event_df = event_df.join(t1_df, how="left")
+    processorList.DropTier0(event_df)
 
-      waveform = digitizer.parse_event_data(event_data)
-      #Currently, I'll just mandate that we only process full waveform data i guess
-      wf_data = waveform.get_waveform()
+  # if verbose: update_progress(1)
 
-      # import matplotlib.pyplot as plt
-      # print(waveform.full_sample_range)
-      # plt.plot(waveform.data)
-      # plt.show()
-      # exit()
-
-      # try:
-        #convert the stored waveform (which is int16) to a float, throw it to the processorList
-      processorList.Reset( wf_data )
-      try:
-        processorList.param_dict["fs_start"] = waveform.full_sample_range[0]
-        processorList.param_dict["fs_end"] = waveform.full_sample_range[1]
-      except AttributeError:
-        #in case it isn't a multisampled waveform object
-        pass
-
-      paramDict = processorList.Process(event_data)
-      appended_data.append(paramDict)
-      # except Exception as e:
-      #   print(e)
-      #   import matplotlib.pyplot as plt
-      #   plt.plot(wf_data)
-      #   plt.show()
-      #   exit()
-
-  if verbose: update_progress(1)
-
-  verbose=True
-  if verbose: print("Creating dataframe for file {}...".format(filename))
-  df_data = pd.DataFrame(appended_data)
-  df_data.set_index("event_number", inplace=True)
+  # if verbose: print("Creating dataframe for file {}...".format(filename))
+  # df_data = pd.DataFrame(appended_data)
+  # df_data.set_index("event_number", inplace=True)
 
   t2_file_name = output_file_string+'_run{}.h5'.format(runNumber)
   t2_path = os.path.join(output_dir,t2_file_name)
 
-  if verbose: print("Writing {} to tier1 file {}...".format(filename, t2_path))
+  if verbose: print("\nWriting {} to tier1 file {}...".format(filename, t2_path))
 
-  df_data.to_hdf(t2_path, key="data", format='table', mode='w', data_columns=df_data.columns.tolist())
-  return df_data
+  event_df.to_hdf(t2_path, key="data", format='table', mode='w', data_columns=event_df.columns.tolist())
+  return event_df
 
-
-# def event_proc(event_data):
-#   waveform = digitizer.parse_event_data(event_data)
-#   #Currently, I'll just mandate that we only process full waveform data i guess
-#   wf_data = waveform.get_waveform()
-#
-#   processorList.Reset( wf_data )
-#
-#   paramDict = processorList.Process(event_data)
-#   appended_data.append(paramDict)
 
 class TierOneProcessorList():
   '''
@@ -258,51 +225,73 @@ class TierOneProcessorList():
   def __init__(self):
     self.list = []
     self.waveform_dict = {}
-    self.param_dict = {}
+    self.event_data = None
+    self.digitizer = None
+    self.runNumber = 0
 
     #t1 fields to make available for t2 processors
-    self.t0_list = ["channel", "energy", "timestamp", "event_number"]
-
-  def Reset(self, waveform):
-    self.param_dict = {}
-    # print("TierOneProcessorList.reset() not implemented")
-    # exit()
-    self.waveform_dict = {"waveform":waveform}
+    self.t0_map = {}
 
   def Process(self, t0_row):
+    if self.verbose and self.num%100==0:
+      if (float(self.num)/ self.max_event_number ) < 1:
+        update_progress( float(self.num)/ self.max_event_number, self.runNumber)
+    #
+    waveform = self.digitizer.parse_event_data(t0_row)
+    #Currently, I'll just mandate that we only process full waveform data i guess
+
+    #Clear things out from the last waveform:
+    self.waveform_dict = {"waveform":waveform.get_waveform()}
+    new_cols = {}
+
+    try:
+      new_cols["fs_start"] = waveform.full_sample_range[0]
+      new_cols["fs_end"] = waveform.full_sample_range[1]
+    except AttributeError:
+      #in case it isn't a multisampled waveform object
+      pass
+
+    #Apply each processor
     for processor in self.list:
-      #Parse out the t0 fields
-      for name in self.t0_list: self.param_dict[name] = t0_row[name]
-
-      processor.replace_args(self.param_dict)
-
-      #TODO: what if output is None??
-
-      try: #if you can set a waveform, do it
-        processor.set_waveform(self.waveform_dict)
-      except AttributeError:
-        pass
+      processor.replace_args(new_cols)
+      processor.set_waveform(self.waveform_dict )
+      # print("now im in " +processor.function.__name__)
 
       if isinstance(processor, Transformer):
         self.waveform_dict[processor.output_name] = processor.process()
-
       else:
         output = processor.output_name
         calc = processor.process()
+
+        #Handles multiple outputs for, e.g., time point calculations
         if not isinstance(output, str) and len(output) > 1:
           for i, out in enumerate(output):
-            self.param_dict[out] = calc[i]
-        else: self.param_dict[output] = calc
-    return self.param_dict
+            new_cols[out] = calc[i]
+        else: new_cols[output] = calc
+    self.num +=1
+
+    new_cols_series = pd.Series(new_cols)
+    return new_cols_series
 
   def AddTransform(self, function, args={}, input_waveform="waveform", output_waveform=None):
-    self.list.append( Transformer(function, args, input_waveform, output_waveform) )
+    self.list.append( Transformer(function, args=args, input_waveform=input_waveform, output_waveform=output_waveform) )
 
   def AddCalculator(self, function, args={}, input_waveform="waveform",  output_name=None):
-    self.list.append( Calculator(function, args, input_waveform, output_name) )
+    self.list.append( Calculator(function, args=args, input_waveform=input_waveform, output_name=output_name) )
 
-  def AddDatabaseLookup(self, function, args={}, output_name=None):
-    self.list.append( DatabaseLookup(function, args, output_name) )
+  # def AddDatabaseLookup(self, function, args={}, output_name=None):
+  #   self.list.append( DatabaseLookup(function, args, output_name) )
 
   def AddFromTier0(self, name, output_name=None):
-    self.list.append( Tier0Passer(name, output_name) )
+    if output_name is None:
+      output_name = name
+    self.t0_map[name] = output_name
+    # self.list.append( Tier0Passer(name, output_name) )
+
+  def DropTier0(self, df_t1):
+    df_t1.rename(index=str, columns=self.t0_map, inplace=True)
+    drop_cols = []
+    for t0_col in self.t0_cols:
+      if t0_col not in self.t0_map.keys():
+        drop_cols.append(t0_col)
+    df_t1.drop(drop_cols,  axis=1, inplace=True)

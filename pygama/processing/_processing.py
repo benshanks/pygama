@@ -23,13 +23,19 @@ def process_tier_0(datadir, runList, verbose=True, output_dir=None, chan_list=No
 
         ProcessTier0(filepath, verbose=verbose, output_dir=output_dir, n_max=n_max, chan_list=chan_list)
 
-def process_tier_1(datadir, runList, processor_list, verbose=True, output_dir=None, output_file_string="t2", num_threads=1):
+def process_tier_1(datadir, runList, processor_list, verbose=True, output_dir=None, output_file_string="t2", num_threads=1, overwrite=True):
     # if processor_list is None:
     #     processor_list = get_default_processor_list()
 
     t1_args = []
     for run in runList:#[440]:
         filepath = os.path.join(datadir, "t1_run{}.h5".format(run))
+        if not overwrite:
+            outfilepath = os.path.join(output_dir, output_file_string+"_run{}.h5".format(run))
+            if os.path.isfile(outfilepath):
+                print("Skipping run {} because t2 file already created...".format(run))
+                continue
+
         if num_threads == 1:
             ProcessTier1(filepath, processor_list, verbose=verbose, output_dir=output_dir, output_file_string=output_file_string  )
         else:

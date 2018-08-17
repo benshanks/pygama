@@ -12,7 +12,7 @@ from ._processing import process_tier_1
 from .processors import Calculator
 from .processors import Transformer
 from .processors import DatabaseLookup
-from .processors import Tier0Passer
+# from .processors import Tier0Passer
 
 __all__ = [
     "process_tier_0",
@@ -20,6 +20,6 @@ __all__ = [
     "Calculator",
     "Transformer",
     "DatabaseLookup",
-    "Tier0Passer",
+    # "Tier0Passer",
     "TierOneProcessorList"
 ]
