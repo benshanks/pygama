@@ -116,11 +116,13 @@ class DataLoader(ABC):
         allows us to overload for more complicated use cases
         '''
         df = pd.DataFrame.from_dict(self.decoded_values)
+        if len(df) == 0: return None
         df.set_index("event_number", inplace=True)
         return df
 
     def to_file(self, file_name):
         df_data = self.create_df()
+        if df_data is None: return
         df_data.to_hdf(file_name, key=self.decoder_name, mode='a', format=self.hf5_type, data_columns=df_data.columns.tolist())
 
         if self.object_info is not None:
