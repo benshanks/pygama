@@ -4,18 +4,18 @@ from .peak_fitting import *
 from .utils import get_bin_centers
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
-from scipy.signal import argrelextrema, medfilt
+from scipy.signal import argrelextrema, medfilt, find_peaks_cwt
 from scipy.ndimage.filters import gaussian_filter1d
 from scipy.stats import norm
 import scipy.optimize as op
 
 #return a histogram around the most prominent peak in a spectrum of a given percentage of width
-def get_most_prominent_peaks(energySeries, num_peaks=10, bins=2000):
+def get_most_prominent_peaks(energySeries, max_num_peaks=np.inf, bins=2000):
     '''
     find the most prominent peaks in a spectrum by looking for spikes in derivative of spectrum
 
     energySeries: array of measured energies
-    num_peaks = number of most prominent peaks to find
+    max_num_peaks = maximum number of most prominent peaks to find
     '''
 
     # bins = np.linspace( np.amin(energySeries), np.amax(energySeries), 2700 )
@@ -26,97 +26,74 @@ def get_most_prominent_peaks(energySeries, num_peaks=10, bins=2000):
     bin_centers = get_bin_centers(bin_edges)
 
     #median filter along the spectrum, do this as a "baseline subtraction"
-    hist_med = medfilt(hist, 101)
+    hist_med = medfilt(hist, 21)
     hist = hist - hist_med
-    # plt.plot(bin_centers, hist_med, color="r")
-    # plt.plot(bin_centers, hist-hist_med, color="k")
+
+    # plt.plot(bin_centers, hist, drawstyle='steps')
     # plt.show()
     # exit()
 
-    #find the n most prominent peaks
-    peak_idxs = argrelextrema(hist, np.greater_equal, order=8)[0]
-    del_idxs = []
-    for i in range(1, len(peak_idxs)):
-        if peak_idxs[i-1] == peak_idxs[i]-1:
-            del_idxs.append(i)
-    peak_idxs = np.delete(peak_idxs, del_idxs)
+    peak_idxs = find_peaks_cwt(hist, np.arange(1,6, 0.1), min_snr=4)
+    peak_energies = bin_centers[peak_idxs]
 
-    peak_vals = hist[peak_idxs]
-    sort_idxs = np.argsort(peak_vals)
-    peak_idxs_max = peak_idxs[sort_idxs[-num_peaks:]]
+    if max_num_peaks < len(peak_energies):
+        #pick the num_peaks most prominent peaks
+        peak_vals = hist[peak_idxs]
+        sort_idxs = np.argsort(peak_vals)
+        peak_idxs_max = peak_idxs[sort_idxs[-max_num_peaks:]]
+        peak_energies = np.sort(bin_centers[peak_idxs_max])
 
-    peak_energies = np.sort(bin_centers[peak_idxs_max])
     bin_width = bin_edges[1]-bin_edges[0]
     return peak_energies, bin_width
 
-    #the four highest peaks
-    cal_es = [860, 2614]
-    peak_es = peak_energies[-2:]
-
-    from scipy.stats import linregress
-    m,b,r,_,_=linregress(peak_es, y=cal_es)
-
-    plt.figure()
-    # plt.subplot(121)
-    plt.plot(m*bin_centers+b, hist, ls="steps")
     # plt.plot(bin_centers, hist, ls="steps")
-    # plt.subplot(122)
-    # plt.plot(bin_centers, peaks_diff, ls="steps")
-    #
-    peak_energies = m*peak_energies+b
-    for peak_e in peak_energies:
-        plt.axvline(peak_e, color="g", ls=":")
-        print(peak_e)
-    #
-    # for peak_e in peak_es:
-    #     # plt.axvline(bin_centers[peak_idx], color="r", ls=":")
-    #     plt.axvline(peak_e, color="r", ls=":")
+    # for peak_e in peak_energies:
+    #     plt.axvline(peak_e, color="g", ls=":")
+    # plt.show()
+    # exit()
 
 
-    plt.show()
-    exit()
-
-
-def compare_peaks(data_peaks, cal_peaks, data_err):
+def match_peaks(data_peaks, cal_peaks):
+    '''
+    Match uncalibrated peaks with specific energies:
+    does so by trying all
+    '''
     from itertools import combinations
 
-    # dp_norm = (data_peaks - data_peaks[0] )/(data_peaks[-1]- data_peaks[0])
-    # cp_norm = (cal_peaks - cal_peaks[0] )/(cal_peaks[-1]- cal_peaks[0])
-    #
-    #
-    # # dp_adj = dp_norm*scale+offset
+    n_peaks = len(cal_peaks) if len(cal_peaks) < len(data_peaks) else len(data_peaks)
+    cal_sets = combinations(range(len(cal_peaks)), n_peaks)
+    data_sets = combinations(range(len(data_peaks)), n_peaks)
 
-    cal_sets = combinations(range(len(cal_peaks)), len(cal_peaks))
-    data_sets = combinations(range(len(data_peaks)), len(cal_peaks))
-    def get_ratio_sum(cal, data):
+    def get_ratio_sum(data, cal):
         from scipy.stats import linregress
-        m,b,r,_,_=linregress(data, y=cal)
-        return  r**2, m, b
+        m,b,_,_,_=linregress(data, y=cal)
+        err = np.sum( (cal - (m*data+b))**2 )
+        return  err, m, b
 
-    best_r2=0
-    best_m = None
-    best_b = None
+    best_err, best_m, best_b = np.inf, None, None
 
     for cal_set in cal_sets:
         cal = cal_peaks[list(cal_set)]
         for data_set in data_sets:
             data = data_peaks[list(data_set)]
 
-            r2,m,b = get_ratio_sum(cal, data)
+            err,m,b = get_ratio_sum(data, cal)
+            if err< best_err:
+                best_err, best_m, best_b = err, m, b
+                # print(err)
+                # plt.figure()
+                # plt.scatter(data, cal)
+                # xs = np.linspace( data[0], data[-1], 10 )
+                # plt.plot( xs, m*xs+b , c="r"  )
+                # plt.show()
 
-            if r2> best_r2:
-                best_r2=r2
-                best_m = m
-                best_b = b
-
-    dp_norm = best_m*data_peaks + best_b
     return best_m, best_b
 
 
-def calibrate_tl208(energy_series, peak_energies="th228", plotFigure=None):
+def calibrate_tl208(energy_series, cal_peaks=None, plotFigure=None):
     '''
     energy_series: array of energies we want to calibrate
-    peak_energies: array of peaks to fit
+    cal_peaks: array of peaks to fit
 
     1.) we find the 2614 peak by looking for the tallest peak at >0.1 the max adc value
     2.) fit that peak to get a rough guess at a calibration to find other peaks with
@@ -124,28 +101,35 @@ def calibrate_tl208(energy_series, peak_energies="th228", plotFigure=None):
     4.) do a linear fit to the peak centroids to find a calibration
     '''
 
-    cal_peaks = np.array([238.632, 510.770, 583.191, 727.330, 860.564, 2614.553])#get_calibration_energies(peak_energies)
+    if cal_peaks is None:
+        cal_peaks = np.array([238.632, 510.770, 583.191, 727.330, 860.564, 2614.553])#get_calibration_energies(peak_energies)
+    else:
+        cal_peaks = np.array(cal_peaks)
+
+    if len(energy_series) <100:
+        return 1,0
 
     #get 10 most prominent ~high e peaks
     max_adc = np.amax(energy_series)
-    energy_hi = energy_series[ (energy_series > np.percentile(energy_series, 20)) & (energy_series < np.percentile(energy_series, 99.9))]
+    energy_hi = energy_series#[ (energy_series > np.percentile(energy_series, 20)) & (energy_series < np.percentile(energy_series, 99.9))]
 
-    # plt.hist(energy_hi, bins=2700, histtype="step")
-    # plt.show()
-    # exit()
-
-    peak_energies, peak_e_err = get_most_prominent_peaks(energy_hi, num_peaks=9)
-
-    rough_kev_per_adc, rough_kev_offset = compare_peaks(peak_energies, cal_peaks, peak_e_err)
+    peak_energies, peak_e_err = get_most_prominent_peaks(energy_hi,)
+    rough_kev_per_adc, rough_kev_offset = match_peaks(peak_energies, cal_peaks)
     e_cal_rough = rough_kev_per_adc*energy_series+rough_kev_offset
 
     # return rough_kev_per_adc, rough_kev_offset
-
-    # for peak in cal_peaks:
-    #     plt.axvline(peak, c="r", ls=":")
-    #
-    # plt.hist(e_cal_rough[e_cal_rough>100], bins=2700)
-    # plt.show()
+    # print(energy_series)
+    # plt.ion()
+    # plt.figure()
+    # # for peak in cal_peaks:
+    # #     plt.axvline(peak, c="r", ls=":")
+    # # energy_series.hist()
+    # # for peak in peak_energies:
+    # #      plt.axvline(peak, c="r", ls=":")
+    # #
+    # plt.hist(energy_series)
+    # # plt.hist(e_cal_rough[e_cal_rough>100], bins=2700)
+    # val = input("do i exist?")
     # exit()
 
     ###############################################
