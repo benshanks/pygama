@@ -202,7 +202,6 @@ def ProcessTier1(filename,  processorList, digitizer_list=None, output_file_stri
     t1_df = event_df.apply(processorList.Process, axis=1)
     event_df = event_df.join(t1_df, how="left")
     processorList.DropTier0(event_df)
-
   # if verbose: update_progress(1)
 
   # if verbose: print("Creating dataframe for file {}...".format(filename))
@@ -289,7 +288,7 @@ class TierOneProcessorList():
     # self.list.append( Tier0Passer(name, output_name) )
 
   def DropTier0(self, df_t1):
-    df_t1.rename(index=str, columns=self.t0_map, inplace=True)
+    df_t1.rename(columns=self.t0_map, inplace=True)
     drop_cols = []
     for t0_col in self.t0_cols:
       if t0_col not in self.t0_map.keys():
