@@ -121,7 +121,7 @@ class DataLoader(ABC):
 
     def to_file(self, file_name):
         df_data = self.create_df()
-        df_data.to_hdf(file_name, key=self.decoder_name, mode='a', format=self.hf5_type, data_columns=['channel', 'energy'])
+        df_data.to_hdf(file_name, key=self.decoder_name, mode='a', format=self.hf5_type, data_columns=df_data.columns.tolist())
 
         if self.object_info is not None:
             if self.class_name == self.decoder_name:
