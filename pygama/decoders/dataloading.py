@@ -115,7 +115,9 @@ class DataLoader(ABC):
         '''
         allows us to overload for more complicated use cases
         '''
-        return pd.DataFrame.from_dict(self.decoded_values)
+        df = pd.DataFrame.from_dict(self.decoded_values)
+        df.set_index("event_number", inplace=True)
+        return df
 
     def to_file(self, file_name):
         df_data = self.create_df()
