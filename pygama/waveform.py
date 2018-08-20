@@ -16,7 +16,7 @@ class Waveform():
     def get_waveform(self):
         return self.data
 
-    def window_waveform(self, time_point=0.5, early_samples=200, num_samples=400, method="percent"):
+    def window_waveform(self, time_point=0.5, early_samples=200, num_samples=400, method="percent", use_slope=False):
         '''Windows waveform around a risetime percentage timepoint
             time_point: percentage (0-1)
             early_samples: samples to include before the calculated time_point
@@ -28,7 +28,10 @@ class Waveform():
 
         #bl subtract
         try:
-            wf_copy = wf_copy - (self.bl_int + np.arange(len(wf_copy))*self.bl_slope)
+            wf_copy = wf_copy - self.bl_int
+            if use_slope:
+                wf_copy = wf_copy - (np.arange(len(wf_copy))*self.bl_slope)
+                
         except AttributeError:
             p = fit_baseline(wf_copy)
             wf_copy = wf_copy - (p[1] + np.arange(len(wf_copy))*p[0])
